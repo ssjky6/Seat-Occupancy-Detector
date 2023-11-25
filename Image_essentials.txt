@@ -1,0 +1,48 @@
+     def get_file_info_data(self):
+        start = time.time()
+        select_query = "select file_info_id_CAM0 from file_session_info where session_info_id=?"
+        # select_query = "select file_info_id_CAM0 from file_session_info f join Phash_file_session_info_status p on f.id=p.file_session_info_id where p.IsActive=1 and session_info_id=?"
+        all_file_info = self.db_conn_child.execute(select_query, (self.session)).fetchall()
+        all_file_info = [i[0] for i in all_file_info]
+        select_query_image_path = "select id, file_path_png from file_info where id in (" + ','.join(
+            [str(i) for i in all_file_info]) + ")"
+        file_info_path_map = self.db_conn_child.execute(select_query_image_path)
+        file_info_path_map = dict(file_info_path_map)
+        print("time taken for db fetch: ", time.time() - start)
+        return all_file_info, file_info_path_map
+		
+		
+    def __fetch_image_from_server(self, server_image_path):
+        local_img_path = os.path.join(self.local_img_dir, os.path.basename(server_image_path))
+        if not os.path.exists(local_img_path):
+            try:
+                self.pysftp.get(server_image_path, local_img_path)
+            except Exception as e:
+                server_image_path = "http://sgsccccdl0115.in623.corpintra.net:8081" + server_image_path
+                pid = subprocess.Popen(["wget " + server_image_path + " -O " + local_img_path], stdout=subprocess.PIPE,
+                                       shell=True)
+                pid.wait()
+        return local_img_path
+		
+class DatabaseConnection:
+
+    def get_cursor(self):
+        """
+        Creates Connection with db using parameters mentioned in config.py file and returns cursor
+        :return: cursor
+        """
+        database_string_child = "DRIVER={" + r2pu_config.DB_DRIVER_STRING + "};SERVER={" + r2pu_config.DB_SERVER_ADDRESS + \
+                          "};DATABASE={" + r2pu_config.DB_NAME_CHILD + "};uid={" + r2pu_config.DB_UID + "};pwd={" + r2pu_config.DB_PWD + "};"
+        database_string_master = "DRIVER={" + r2pu_config.DB_DRIVER_STRING + "};SERVER={" + r2pu_config.DB_SERVER_ADDRESS + \
+                                "};DATABASE={" + r2pu_config.DB_NAME_MASTER + "};uid={" + r2pu_config.DB_UID + "};pwd={" + r2pu_config.DB_PWD + "};"
+        try:
+            connection_child = pyodbc.connect(database_string_child, autocommit=True)
+            cursor_child = connection_child.cursor()
+            connection_master = pyodbc.connect(database_string_master, autocommit=True)
+            cursor_master = connection_master.cursor()
+            logger.info("Connected to DB: " + r2pu_config.DB_NAME_CHILD + " @ " + r2pu_config.DB_SERVER_ADDRESS)
+            logger.info("Connected to DB: " + r2pu_config.DB_NAME_MASTER + " @ " + r2pu_config.DB_SERVER_ADDRESS)
+            return cursor_master, cursor_child
+        except pyodbc.Error as e:
+            logger.error(str(e))
+            exit(1)
